@@ -3,6 +3,7 @@ package cli
 import (
 	"bufio"
 	"fmt"
+	"net"
 	"os"
 	"strings"
 
@@ -202,14 +203,19 @@ func runConfigValidate(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	serverValid := cfg.Server != ""
+	serverValid, serverMsg := validateServerAddress(cfg.Server)
 	tokenSet := cfg.Token != ""
 	tlsEnabled := cfg.TLS
 
-	fmt.Println(ui.RenderConfigValidation(serverValid, tokenSet, tlsEnabled))
+	tokenMsg := "Token is set"
+	if !tokenSet {
+		tokenMsg = "Token is not set (authentication may fail)"
+	}
+
+	fmt.Println(ui.RenderConfigValidation(serverValid, serverMsg, tokenSet, tokenMsg, tlsEnabled))
 
 	if !serverValid {
-		return fmt.Errorf("invalid configuration")
+		return fmt.Errorf("invalid configuration: %s", serverMsg)
 	}
 
 	return nil
@@ -220,4 +226,26 @@ func enabledDisabled(value bool) string {
 		return "enabled"
 	}
 	return "disabled"
+}
+
+func validateServerAddress(addr string) (bool, string) {
+	addr = strings.TrimSpace(addr)
+	if addr == "" {
+		return false, "Server address is not set"
+	}
+
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return false, fmt.Sprintf("Server address must include host and port (e.g., tunnel.example.com:443): %v", err)
+	}
+
+	if host == "" {
+		return false, "Server host is empty"
+	}
+
+	if port == "" {
+		return false, "Server port is empty"
+	}
+
+	return true, fmt.Sprintf("Server address is valid (%s:%s)", host, port)
 }

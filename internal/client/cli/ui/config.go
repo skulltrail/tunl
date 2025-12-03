@@ -69,19 +69,19 @@ func RenderConfigDeleted() string {
 }
 
 // RenderConfigValidation renders config validation results
-func RenderConfigValidation(serverValid, tokenSet, tlsEnabled bool) string {
+func RenderConfigValidation(serverValid bool, serverMsg string, tokenSet bool, tokenMsg string, tlsEnabled bool) string {
 	lines := []string{}
 
 	if serverValid {
-		lines = append(lines, Success("Server address is valid"))
+		lines = append(lines, Success(serverMsg))
 	} else {
-		lines = append(lines, Error("Server address is not set"))
+		lines = append(lines, Error(serverMsg))
 	}
 
 	if tokenSet {
-		lines = append(lines, Success("Token is set"))
+		lines = append(lines, Success(tokenMsg))
 	} else {
-		lines = append(lines, Warning("Token is not set (authentication may fail)"))
+		lines = append(lines, Warning(tokenMsg))
 	}
 
 	if tlsEnabled {
@@ -111,7 +111,7 @@ func RenderDaemonStarted(tunnelType string, port int, pid int, logPath string) s
 		Cyan(fmt.Sprintf("  drip attach %s %d", tunnelType, port)) + Muted("  View logs"),
 		Cyan(fmt.Sprintf("  drip stop %s %d", tunnelType, port)) + Muted("    Stop tunnel"),
 		"",
-		Muted("Logs: ")+mutedStyle.Render(logPath),
+		Muted("Logs: ") + mutedStyle.Render(logPath),
 	}
 	return SuccessBox("Tunnel Started in Background", lines...)
 }
