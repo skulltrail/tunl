@@ -246,6 +246,28 @@ EOF
     echo ""
 }
 
+# Extract version from a drip binary, preferring the plain output when available
+get_version_from_binary() {
+    local binary="$1"
+    local output=""
+    local version=""
+
+    output=$("$binary" version --short 2>/dev/null || true)
+    if [[ -n "$output" ]]; then
+        version=$(printf '%s\n' "$output" | awk -F': ' '/Version/ {print $2; exit}')
+    fi
+
+    if [[ -z "$version" ]]; then
+        output=$("$binary" version 2>/dev/null || true)
+        if [[ -n "$output" ]]; then
+            output=$(printf '%s\n' "$output" | sed -E $'s/\x1b\\[[0-9;]*[A-Za-z]//g')
+            version=$(printf '%s\n' "$output" | sed -nE 's/.*Version:[[:space:]]*([vV]?[0-9][^[:space:]]*).*/\1/p' | head -n1)
+        fi
+    fi
+
+    echo "${version:-unknown}"
+}
+
 # ============================================================================
 # Language selection
 # ============================================================================
@@ -372,7 +394,7 @@ check_existing_install() {
     local server_path="$INSTALL_DIR/drip"
 
     if [[ -f "$server_path" ]]; then
-        local current_version=$("$server_path" version 2>/dev/null | awk '/Version:/ {print $2}' || echo "unknown")
+        local current_version=$(get_version_from_binary "$server_path")
 
         print_warning "$(msg already_installed): $server_path"
         print_info "$(msg current_version): $current_version"
@@ -974,7 +996,7 @@ main() {
             fi
 
             echo ""
-            local new_version=$("$INSTALL_DIR/drip" version 2>/dev/null | awk '/Version:/ {print $2}' || echo "unknown")
+            local new_version=$(get_version_from_binary "$INSTALL_DIR/drip")
             echo -e "${GREEN}╔════════════════════════════════════════════════════════════╗${NC}"
             echo -e "${GREEN}║   $(msg update_ok)                                                ${GREEN}║${NC}"
             echo -e "${GREEN}╚════════════════════════════════════════════════════════════╝${NC}"

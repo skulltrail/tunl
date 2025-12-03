@@ -78,6 +78,7 @@ MSG_EN=(
     ["press_enter"]="Press Enter to continue..."
     ["windows_note"]="For Windows, please download the .exe file from GitHub Releases"
     ["already_installed"]="Drip is already installed"
+    ["current_version"]="Current version"
     ["update_now"]="Update to the latest version?"
     ["updating"]="Updating..."
     ["update_ok"]="Update completed"
@@ -138,6 +139,7 @@ MSG_ZH=(
     ["press_enter"]="按 Enter 继续..."
     ["windows_note"]="Windows 用户请从 GitHub Releases 下载 .exe 文件"
     ["already_installed"]="Drip 已安装"
+    ["current_version"]="当前版本"
     ["update_now"]="是否更新到最新版本？"
     ["updating"]="正在更新..."
     ["update_ok"]="更新完成"
@@ -179,6 +181,28 @@ print_banner() {
 EOF
     echo -e "${BOLD}$(msg banner_title)${NC}"
     echo ""
+}
+
+# Extract version from a drip binary, preferring the plain output when available
+get_version_from_binary() {
+    local binary="$1"
+    local output=""
+    local version=""
+
+    output=$("$binary" version --short 2>/dev/null || true)
+    if [[ -n "$output" ]]; then
+        version=$(printf '%s\n' "$output" | awk -F': ' '/Version/ {print $2; exit}')
+    fi
+
+    if [[ -z "$version" ]]; then
+        output=$("$binary" version 2>/dev/null || true)
+        if [[ -n "$output" ]]; then
+            output=$(printf '%s\n' "$output" | sed -E $'s/\x1b\\[[0-9;]*[A-Za-z]//g')
+            version=$(printf '%s\n' "$output" | sed -nE 's/.*Version:[[:space:]]*([vV]?[0-9][^[:space:]]*).*/\1/p' | head -n1)
+        fi
+    fi
+
+    echo "${version:-unknown}"
 }
 
 # ============================================================================
@@ -292,7 +316,7 @@ get_latest_version() {
 check_existing_install() {
     if command -v drip &> /dev/null; then
         local current_path=$(command -v drip)
-        local current_version=$(drip version 2>/dev/null | awk '/Version:/ {print $2}' || echo "unknown")
+        local current_version=$(get_version_from_binary "drip")
 
         print_warning "$(msg already_installed): $current_path"
         print_info "$(msg current_version): $current_version"
@@ -484,7 +508,7 @@ verify_installation() {
     fi
 
     if [[ -x "$binary_path" ]]; then
-        local version=$("$binary_path" version 2>/dev/null | awk '/Version:/ {print $2}' || echo "installed")
+        local version=$(get_version_from_binary "$binary_path")
         print_success "$(msg verify_ok): $version"
     else
         print_error "$(msg verify_failed)"
@@ -624,7 +648,7 @@ main() {
         test_connection
     else
         echo ""
-        local new_version=$("$INSTALL_DIR/$BINARY_NAME" version 2>/dev/null | awk '/Version:/ {print $2}' || echo "installed")
+        local new_version=$(get_version_from_binary "$INSTALL_DIR/$BINARY_NAME")
         echo -e "${GREEN}╔════════════════════════════════════════════════════════════╗${NC}"
         echo -e "${GREEN}║   $(msg update_ok)                                                ${GREEN}║${NC}"
         echo -e "${GREEN}╚════════════════════════════════════════════════════════════╝${NC}"

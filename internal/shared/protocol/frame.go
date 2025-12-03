@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"net"
 
 	"drip/internal/shared/pool"
 )
@@ -60,20 +61,21 @@ func WriteFrame(w io.Writer, frame *Frame) error {
 		return fmt.Errorf("payload too large: %d bytes (max %d)", payloadLen, MaxFrameSize)
 	}
 
-	lengthBuf := make([]byte, 4)
-	binary.BigEndian.PutUint32(lengthBuf, uint32(payloadLen))
-	if _, err := w.Write(lengthBuf); err != nil {
-		return fmt.Errorf("failed to write length: %w", err)
-	}
+	var header [FrameHeaderSize]byte
+	binary.BigEndian.PutUint32(header[0:4], uint32(payloadLen))
+	header[4] = byte(frame.Type)
 
-	if _, err := w.Write([]byte{byte(frame.Type)}); err != nil {
-		return fmt.Errorf("failed to write type: %w", err)
-	}
-
-	if payloadLen > 0 {
-		if _, err := w.Write(frame.Payload); err != nil {
-			return fmt.Errorf("failed to write payload: %w", err)
+	if payloadLen == 0 {
+		if _, err := w.Write(header[:]); err != nil {
+			return fmt.Errorf("failed to write frame header: %w", err)
 		}
+		return nil
+	}
+
+	// net.Buffers will use writev for TCP connections and falls back to
+	// sequential writes for other io.Writer implementations (e.g. TLS).
+	if _, err := (&net.Buffers{header[:], frame.Payload}).WriteTo(w); err != nil {
+		return fmt.Errorf("failed to write frame: %w", err)
 	}
 
 	return nil
@@ -132,5 +134,15 @@ func NewFrame(frameType FrameType, payload []byte) *Frame {
 	return &Frame{
 		Type:    frameType,
 		Payload: payload,
+	}
+}
+
+// NewFramePooled creates a new frame with a pooled buffer
+// The poolBuffer will be automatically released after the frame is written
+func NewFramePooled(frameType FrameType, payload []byte, poolBuffer *[]byte) *Frame {
+	return &Frame{
+		Type:       frameType,
+		Payload:    payload,
+		poolBuffer: poolBuffer,
 	}
 }

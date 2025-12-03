@@ -105,18 +105,18 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	header := protocol.DataHeader{
 		StreamID:  requestID,
 		RequestID: requestID,
-		Type:      "http_request",
+		Type:      protocol.DataTypeHTTPRequest,
 		IsLast:    true,
 	}
 
-	payload, err := protocol.EncodeDataPayload(header, reqBytes)
+	payload, poolBuffer, err := protocol.EncodeDataPayloadPooled(header, reqBytes)
 	if err != nil {
 		h.logger.Error("Encode data payload failed", zap.Error(err))
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
-	frame := protocol.NewFrame(protocol.FrameTypeData, payload)
+	frame := protocol.NewFramePooled(protocol.FrameTypeData, payload, poolBuffer)
 
 	respChan := h.responses.CreateResponseChan(requestID)
 	defer h.responses.CleanupResponseChan(requestID)

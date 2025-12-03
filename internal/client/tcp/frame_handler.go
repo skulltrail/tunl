@@ -64,9 +64,9 @@ func NewFrameHandler(conn net.Conn, frameWriter *protocol.FrameWriter, localHost
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 			Transport: &http.Transport{
-				MaxIdleConns:          500,
-				MaxIdleConnsPerHost:   200,
-				MaxConnsPerHost:       0,
+				MaxIdleConns:          1000,      // Optimized for both mid and high load scenarios
+				MaxIdleConnsPerHost:   500,       // Sufficient for 400+ concurrent connections
+				MaxConnsPerHost:       0,         // Unlimited
 				IdleConnTimeout:       180 * time.Second,
 				DisableCompression:    true,
 				DisableKeepAlives:     false,
@@ -95,11 +95,11 @@ func (h *FrameHandler) HandleDataFrame(frame *protocol.Frame) error {
 		return fmt.Errorf("failed to decode data payload: %w", err)
 	}
 
-	if header.Type == "http_request" {
+	if header.Type == protocol.DataTypeHTTPRequest {
 		return h.handleHTTPFrame(header, data)
 	}
 
-	if header.Type == "close" {
+	if header.Type == protocol.DataTypeClose {
 		h.closeStream(header.StreamID)
 		return nil
 	}
@@ -172,17 +172,17 @@ func (h *FrameHandler) handleLocalResponse(stream *Stream) {
 
 			header := protocol.DataHeader{
 				StreamID: stream.ID,
-				Type:     "response",
+				Type:     protocol.DataTypeResponse,
 				IsLast:   false,
 			}
 
-			payload, err := protocol.EncodeDataPayload(header, buf[:n])
+			payload, poolBuffer, err := protocol.EncodeDataPayloadPooled(header, buf[:n])
 			if err != nil {
 				h.logger.Error("Encode payload failed", zap.Error(err))
 				break
 			}
 
-			dataFrame := protocol.NewFrame(protocol.FrameTypeData, payload)
+			dataFrame := protocol.NewFramePooled(protocol.FrameTypeData, payload, poolBuffer)
 			err = h.frameWriter.WriteFrame(dataFrame)
 			if err != nil {
 				h.logger.Error("Send frame failed", zap.Error(err))
@@ -302,7 +302,7 @@ func (h *FrameHandler) sendHTTPResponse(streamID, requestID string, resp *protoc
 	header := protocol.DataHeader{
 		StreamID:  streamID,
 		RequestID: requestID,
-		Type:      "http_response",
+		Type:      protocol.DataTypeHTTPResponse,
 		IsLast:    true,
 	}
 
@@ -311,12 +311,12 @@ func (h *FrameHandler) sendHTTPResponse(streamID, requestID string, resp *protoc
 		return fmt.Errorf("encode http response: %w", err)
 	}
 
-	payload, err := protocol.EncodeDataPayload(header, respBytes)
+	payload, poolBuffer, err := protocol.EncodeDataPayloadPooled(header, respBytes)
 	if err != nil {
 		return fmt.Errorf("encode payload: %w", err)
 	}
 
-	dataFrame := protocol.NewFrame(protocol.FrameTypeData, payload)
+	dataFrame := protocol.NewFramePooled(protocol.FrameTypeData, payload, poolBuffer)
 
 	h.stats.AddBytesOut(int64(len(payload)))
 
@@ -347,16 +347,16 @@ func (h *FrameHandler) closeStream(streamID string) {
 	header := protocol.DataHeader{
 		StreamID:  streamID,
 		RequestID: streamID,
-		Type:      "close",
+		Type:      protocol.DataTypeClose,
 		IsLast:    true,
 	}
 
-	payload, err := protocol.EncodeDataPayload(header, nil)
+	payload, poolBuffer, err := protocol.EncodeDataPayloadPooled(header, nil)
 	if err != nil {
 		return
 	}
 
-	closeFrame := protocol.NewFrame(protocol.FrameTypeData, payload)
+	closeFrame := protocol.NewFramePooled(protocol.FrameTypeData, payload, poolBuffer)
 
 	h.frameWriter.WriteFrame(closeFrame)
 }

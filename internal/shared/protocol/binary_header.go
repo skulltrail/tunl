@@ -5,9 +5,9 @@ import (
 	"errors"
 )
 
-// DataHeaderV2 represents a binary-encoded data header (Protocol Version 2)
-// This replaces JSON encoding to improve performance
-type DataHeaderV2 struct {
+// DataHeader represents a binary-encoded data header for data plane
+// All data transmission uses pure binary encoding for performance
+type DataHeader struct {
 	Type      DataType
 	IsLast    bool
 	StreamID  string
@@ -81,7 +81,7 @@ const (
 )
 
 // MarshalBinary encodes the header to binary format
-func (h *DataHeaderV2) MarshalBinary() []byte {
+func (h *DataHeader) MarshalBinary() []byte {
 	streamIDLen := len(h.StreamID)
 	requestIDLen := len(h.RequestID)
 
@@ -111,7 +111,7 @@ func (h *DataHeaderV2) MarshalBinary() []byte {
 }
 
 // UnmarshalBinary decodes the header from binary format
-func (h *DataHeaderV2) UnmarshalBinary(data []byte) error {
+func (h *DataHeader) UnmarshalBinary(data []byte) error {
 	if len(data) < binaryHeaderMinSize {
 		return errors.New("invalid binary header: too short")
 	}
@@ -142,25 +142,7 @@ func (h *DataHeaderV2) UnmarshalBinary(data []byte) error {
 	return nil
 }
 
-// ToDataHeader converts binary header to JSON header (for compatibility)
-func (h *DataHeaderV2) ToDataHeader() DataHeader {
-	return DataHeader{
-		StreamID:  h.StreamID,
-		RequestID: h.RequestID,
-		Type:      h.Type.String(),
-		IsLast:    h.IsLast,
-	}
-}
-
-// FromDataHeader converts JSON header to binary header
-func (h *DataHeaderV2) FromDataHeader(dh DataHeader) {
-	h.StreamID = dh.StreamID
-	h.RequestID = dh.RequestID
-	h.Type = DataTypeFromString(dh.Type)
-	h.IsLast = dh.IsLast
-}
-
 // Size returns the size of the binary-encoded header
-func (h *DataHeaderV2) Size() int {
+func (h *DataHeader) Size() int {
 	return binaryHeaderMinSize + len(h.StreamID) + len(h.RequestID)
 }

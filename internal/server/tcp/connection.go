@@ -2,7 +2,7 @@ package tcp
 
 import (
 	"bufio"
-	json "github.com/goccy/go-json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -11,27 +11,30 @@ import (
 	"sync"
 	"time"
 
+	json "github.com/goccy/go-json"
+
 	"drip/internal/server/tunnel"
 	"drip/internal/shared/constants"
 	"drip/internal/shared/protocol"
+
 	"go.uber.org/zap"
 )
 
 // Connection represents a client TCP connection
 type Connection struct {
-	conn            net.Conn
-	authToken       string
-	manager         *tunnel.Manager
-	logger          *zap.Logger
-	subdomain       string
-	port            int
-	domain          string
-	publicPort      int
-	portAlloc       *PortAllocator
-	tunnelConn      *tunnel.Connection
-	proxy           *TunnelProxy
-	stopCh          chan struct{}
-	once            sync.Once
+	conn          net.Conn
+	authToken     string
+	manager       *tunnel.Manager
+	logger        *zap.Logger
+	subdomain     string
+	port          int
+	domain        string
+	publicPort    int
+	portAlloc     *PortAllocator
+	tunnelConn    *tunnel.Connection
+	proxy         *TunnelProxy
+	stopCh        chan struct{}
+	once          sync.Once
 	lastHeartbeat time.Time
 	mu            sync.RWMutex
 	frameWriter   *protocol.FrameWriter
@@ -67,6 +70,9 @@ func NewConnection(conn net.Conn, authToken string, manager *tunnel.Manager, log
 
 // Handle handles the connection lifecycle
 func (c *Connection) Handle() error {
+	// Register connection for adaptive load tracking
+	protocol.RegisterConnection()
+
 	// Ensure cleanup of control connection, proxy, port, and registry on exit.
 	defer c.Close()
 
@@ -257,6 +263,10 @@ func (c *Connection) handleHTTPRequest(reader *bufio.Reader) error {
 			}
 			// Connection reset by peer is normal - client closed connection abruptly
 			errStr := err.Error()
+			if errors.Is(err, net.ErrClosed) || strings.Contains(errStr, "use of closed network connection") {
+				c.logger.Debug("HTTP connection closed during read", zap.Error(err))
+				return nil
+			}
 			if strings.Contains(errStr, "connection reset by peer") ||
 				strings.Contains(errStr, "broken pipe") ||
 				strings.Contains(errStr, "connection refused") {
@@ -389,12 +399,12 @@ func (c *Connection) handleDataFrame(frame *protocol.Frame) {
 
 	c.logger.Debug("Received data frame",
 		zap.String("stream_id", header.StreamID),
-		zap.String("type", header.Type),
+		zap.String("type", header.Type.String()),
 		zap.Int("data_size", len(data)),
 	)
 
 	switch header.Type {
-	case "response":
+	case protocol.DataTypeResponse:
 		// TCP tunnel response, forward to proxy
 		if c.proxy != nil {
 			if err := c.proxy.HandleResponse(header.StreamID, data); err != nil {
@@ -404,7 +414,7 @@ func (c *Connection) handleDataFrame(frame *protocol.Frame) {
 				)
 			}
 		}
-	case "http_response":
+	case protocol.DataTypeHTTPResponse:
 		if c.responseChans == nil {
 			c.logger.Warn("No response channel handler for HTTP response",
 				zap.String("stream_id", header.StreamID),
@@ -433,14 +443,14 @@ func (c *Connection) handleDataFrame(frame *protocol.Frame) {
 		c.logger.Debug("Routed HTTP response to channel",
 			zap.String("request_id", reqID),
 		)
-	case "close":
+	case protocol.DataTypeClose:
 		// Client is closing the stream
 		if c.proxy != nil {
 			c.proxy.CloseStream(header.StreamID)
 		}
 	default:
 		c.logger.Warn("Unknown data frame type",
-			zap.String("type", header.Type),
+			zap.String("type", header.Type.String()),
 			zap.String("stream_id", header.StreamID),
 		)
 	}
@@ -500,6 +510,9 @@ func (c *Connection) sendError(code, message string) {
 // Close closes the connection
 func (c *Connection) Close() {
 	c.once.Do(func() {
+		// Unregister connection from adaptive load tracking
+		protocol.UnregisterConnection()
+
 		close(c.stopCh)
 
 		if c.frameWriter != nil {

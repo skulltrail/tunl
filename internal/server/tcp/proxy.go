@@ -147,16 +147,16 @@ func (p *TunnelProxy) sendDataToTunnel(streamID string, data []byte) error {
 	header := protocol.DataHeader{
 		StreamID:  streamID,
 		RequestID: streamID,
-		Type:      "data",
+		Type:      protocol.DataTypeData,
 		IsLast:    false,
 	}
 
-	payload, err := protocol.EncodeDataPayload(header, data)
+	payload, poolBuffer, err := protocol.EncodeDataPayloadPooled(header, data)
 	if err != nil {
 		return fmt.Errorf("failed to encode payload: %w", err)
 	}
 
-	frame := protocol.NewFrame(protocol.FrameTypeData, payload)
+	frame := protocol.NewFramePooled(protocol.FrameTypeData, payload, poolBuffer)
 
 	err = p.frameWriter.WriteFrame(frame)
 	if err != nil {
@@ -170,16 +170,16 @@ func (p *TunnelProxy) sendCloseToTunnel(streamID string) {
 	header := protocol.DataHeader{
 		StreamID:  streamID,
 		RequestID: streamID,
-		Type:      "close",
+		Type:      protocol.DataTypeClose,
 		IsLast:    true,
 	}
 
-	payload, err := protocol.EncodeDataPayload(header, nil)
+	payload, poolBuffer, err := protocol.EncodeDataPayloadPooled(header, nil)
 	if err != nil {
 		return
 	}
 
-	frame := protocol.NewFrame(protocol.FrameTypeData, payload)
+	frame := protocol.NewFramePooled(protocol.FrameTypeData, payload, poolBuffer)
 	p.frameWriter.WriteFrame(frame)
 }
 

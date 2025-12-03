@@ -23,7 +23,6 @@ var (
 	// Box styles - Vercel-like clean box
 	boxStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("#333")).
 			Padding(1, 2).
 			MarginTop(1).
 			MarginBottom(1)
@@ -39,8 +38,7 @@ var (
 
 	// Text styles
 	titleStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.Color("#FFF"))
+			Bold(true)
 
 	subtitleStyle = lipgloss.NewStyle().
 			Foreground(mutedColor)

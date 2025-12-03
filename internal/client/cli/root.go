@@ -9,9 +9,10 @@ import (
 
 var (
 	// Version information
-	Version   = "dev"
-	GitCommit = "unknown"
-	BuildTime = "unknown"
+	Version      = "dev"
+	GitCommit    = "unknown"
+	BuildTime    = "unknown"
+	versionPlain bool
 
 	// Global flags
 	serverURL string
@@ -51,6 +52,8 @@ func init() {
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Verbose output")
 	rootCmd.PersistentFlags().BoolVarP(&insecure, "insecure", "k", false, "Skip TLS verification (testing only, NOT recommended)")
 
+	versionCmd.Flags().BoolVar(&versionPlain, "short", false, "Print version information without styling")
+
 	rootCmd.AddCommand(versionCmd)
 	// http and tcp commands are added in their respective init() functions
 	// config command is added in config.go init() function
@@ -60,6 +63,11 @@ var versionCmd = &cobra.Command{
 	Use:   "version",
 	Short: "Print version information",
 	Run: func(cmd *cobra.Command, args []string) {
+		if versionPlain {
+			fmt.Printf("Version: %s\nGit Commit: %s\nBuild Time: %s\n", Version, GitCommit, BuildTime)
+			return
+		}
+
 		fmt.Println(ui.Info(
 			"Drip Client",
 			"",

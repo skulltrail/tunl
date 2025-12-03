@@ -60,7 +60,7 @@ func RenderTunnelConnected(status *TunnelStatus) string {
 	urlLine := lipgloss.JoinHorizontal(
 		lipgloss.Left,
 		urlStyle.Copy().Foreground(accent).Render(status.URL),
-		lipgloss.NewStyle().MarginLeft(1).Foreground(mutedColor).Render("(forwarded link)"),
+		lipgloss.NewStyle().MarginLeft(1).Foreground(mutedColor).Render("(forwarded address)"),
 	)
 
 	forwardLine := lipgloss.NewStyle().

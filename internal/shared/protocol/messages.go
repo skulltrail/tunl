@@ -24,22 +24,10 @@ type ErrorMessage struct {
 	Message string `json:"message"` // Error message
 }
 
-// DataHeader represents metadata for a data frame
-type DataHeader struct {
-	StreamID  string `json:"stream_id"`  // Unique stream identifier
-	RequestID string `json:"request_id"` // Request identifier (for HTTP)
-	Type      string `json:"type"`       // "data", "response", "close", "http_request", "http_response"
-	IsLast    bool   `json:"is_last"`    // Is this the last frame for this stream
-}
+// Note: DataHeader is now defined in binary_header.go as a pure binary structure
+// TCPData has been removed - use DataHeader + raw bytes directly
 
-// TCPData represents TCP tunnel data
-type TCPData struct {
-	StreamID string `json:"stream_id"` // Stream identifier
-	Data     []byte `json:"data"`      // Raw TCP data
-	IsClose  bool   `json:"is_close"`  // Close this stream
-}
-
-// Marshal helpers
+// Marshal helpers for control plane messages (JSON encoding)
 func MarshalJSON(v interface{}) ([]byte, error) {
 	return json.Marshal(v)
 }

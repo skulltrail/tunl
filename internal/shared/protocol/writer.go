@@ -25,7 +25,9 @@ type FrameWriter struct {
 }
 
 func NewFrameWriter(conn io.Writer) *FrameWriter {
-	return NewFrameWriterWithConfig(conn, 128, 2*time.Millisecond, 1024)
+	// Larger queue size for better burst handling across all load scenarios
+	// With adaptive buffer pool, memory pressure is well controlled
+	return NewFrameWriterWithConfig(conn, 128, 2*time.Millisecond, 2048)
 }
 
 func NewFrameWriterWithConfig(conn io.Writer, maxBatch int, maxBatchWait time.Duration, queueSize int) *FrameWriter {
@@ -126,6 +128,8 @@ func (w *FrameWriter) flushBatchLocked() {
 
 	for _, frame := range w.batch {
 		_ = WriteFrame(w.conn, frame)
+		// Release pooled buffer after writing
+		frame.Release()
 	}
 
 	w.batch = w.batch[:0]
