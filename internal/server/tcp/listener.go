@@ -135,8 +135,26 @@ func (l *Listener) handleConnection(netConn net.Conn) {
 		return
 	}
 
+	// Set read deadline before handshake to prevent slow handshake attacks
+	if err := tlsConn.SetReadDeadline(time.Now().Add(10 * time.Second)); err != nil {
+		l.logger.Warn("Failed to set read deadline",
+			zap.String("remote_addr", netConn.RemoteAddr().String()),
+			zap.Error(err),
+		)
+		return
+	}
+
 	if err := tlsConn.Handshake(); err != nil {
 		l.logger.Warn("TLS handshake failed",
+			zap.String("remote_addr", netConn.RemoteAddr().String()),
+			zap.Error(err),
+		)
+		return
+	}
+
+	// Clear the read deadline after successful handshake
+	if err := tlsConn.SetReadDeadline(time.Time{}); err != nil {
+		l.logger.Warn("Failed to clear read deadline",
 			zap.String("remote_addr", netConn.RemoteAddr().String()),
 			zap.Error(err),
 		)

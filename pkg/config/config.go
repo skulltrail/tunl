@@ -55,9 +55,10 @@ func (c *ServerConfig) LoadTLSConfig() (*tls.Config, error) {
 
 	// Force TLS 1.3 only
 	tlsConfig := &tls.Config{
-		Certificates: []tls.Certificate{cert},
-		MinVersion:   tls.VersionTLS13, // Only TLS 1.3
-		MaxVersion:   tls.VersionTLS13, // Only TLS 1.3
+		Certificates:             []tls.Certificate{cert},
+		MinVersion:               tls.VersionTLS13, // Only TLS 1.3
+		MaxVersion:               tls.VersionTLS13, // Only TLS 1.3
+		PreferServerCipherSuites: true,             // Prefer server cipher suites (ignored in TLS 1.3 but set for consistency)
 		CipherSuites: []uint16{
 			tls.TLS_AES_128_GCM_SHA256,
 			tls.TLS_AES_256_GCM_SHA384,
@@ -71,9 +72,11 @@ func (c *ServerConfig) LoadTLSConfig() (*tls.Config, error) {
 // GetClientTLSConfig returns TLS config for client connections
 func GetClientTLSConfig(serverName string) *tls.Config {
 	return &tls.Config{
-		ServerName: serverName,
-		MinVersion: tls.VersionTLS13, // Only TLS 1.3
-		MaxVersion: tls.VersionTLS13, // Only TLS 1.3
+		ServerName:               serverName,
+		MinVersion:               tls.VersionTLS13, // Only TLS 1.3
+		MaxVersion:               tls.VersionTLS13, // Only TLS 1.3
+		ClientSessionCache:       tls.NewLRUClientSessionCache(0), // Enable session resumption (0 = default size)
+		PreferServerCipherSuites: true,                            // Prefer server cipher suites (ignored in TLS 1.3 but set for consistency)
 		CipherSuites: []uint16{
 			tls.TLS_AES_128_GCM_SHA256,
 			tls.TLS_AES_256_GCM_SHA384,
@@ -86,9 +89,11 @@ func GetClientTLSConfig(serverName string) *tls.Config {
 // WARNING: Only use for testing!
 func GetClientTLSConfigInsecure() *tls.Config {
 	return &tls.Config{
-		InsecureSkipVerify: true,
-		MinVersion:         tls.VersionTLS13, // Only TLS 1.3
-		MaxVersion:         tls.VersionTLS13, // Only TLS 1.3
+		InsecureSkipVerify:       true,
+		MinVersion:               tls.VersionTLS13, // Only TLS 1.3
+		MaxVersion:               tls.VersionTLS13, // Only TLS 1.3
+		ClientSessionCache:       tls.NewLRUClientSessionCache(0), // Enable session resumption (0 = default size)
+		PreferServerCipherSuites: true,                            // Prefer server cipher suites (ignored in TLS 1.3 but set for consistency)
 		CipherSuites: []uint16{
 			tls.TLS_AES_128_GCM_SHA256,
 			tls.TLS_AES_256_GCM_SHA384,
