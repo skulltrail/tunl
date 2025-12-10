@@ -10,10 +10,10 @@ const (
 	DefaultWSPort = 8080
 
 	// HeartbeatInterval is how often clients send heartbeat messages
-	HeartbeatInterval = 5 * time.Second
+	HeartbeatInterval = 2 * time.Second
 
 	// HeartbeatTimeout is how long the server waits before considering a connection dead
-	HeartbeatTimeout = 15 * time.Second
+	HeartbeatTimeout = 6 * time.Second
 
 	// RequestTimeout is the maximum time to wait for a response from the client
 	RequestTimeout = 30 * time.Second

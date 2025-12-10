@@ -158,12 +158,12 @@ func RenderRetrying(interval time.Duration) string {
 
 // formatLatency formats latency with color
 func formatLatency(d time.Duration) string {
-	ms := d.Milliseconds()
-	var style lipgloss.Style
-
-	if ms == 0 {
+	if d == 0 {
 		return mutedStyle.Render("measuring...")
 	}
+
+	ms := d.Milliseconds()
+	var style lipgloss.Style
 
 	switch {
 	case ms < 50:
@@ -174,6 +174,11 @@ func formatLatency(d time.Duration) string {
 		style = lipgloss.NewStyle().Foreground(latencyOrangeColor)
 	default:
 		style = lipgloss.NewStyle().Foreground(latencyRedColor)
+	}
+
+	if ms == 0 {
+		us := d.Microseconds()
+		return style.Render(fmt.Sprintf("%dµs", us))
 	}
 
 	return style.Render(fmt.Sprintf("%dms", ms))
