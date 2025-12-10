@@ -12,6 +12,7 @@ import (
 	"drip/internal/shared/constants"
 	"drip/internal/shared/pool"
 	"drip/internal/shared/protocol"
+	"drip/internal/shared/recovery"
 	"drip/pkg/config"
 	"go.uber.org/zap"
 )
@@ -47,6 +48,9 @@ type Connector struct {
 	// Worker pool for handling data frames
 	dataFrameQueue chan *protocol.Frame
 	workerCount    int
+
+	recoverer    *recovery.Recoverer
+	panicMetrics *recovery.PanicMetrics
 }
 
 // ConnectorConfig holds connector configuration
@@ -78,6 +82,9 @@ func NewConnector(cfg *ConnectorConfig, logger *zap.Logger) *Connector {
 	numCPU := pool.NumCPU()
 	workerCount := max(numCPU+numCPU/2, 4)
 
+	panicMetrics := recovery.NewPanicMetrics(logger, nil)
+	recoverer := recovery.NewRecoverer(logger, panicMetrics)
+
 	return &Connector{
 		serverAddr:     cfg.ServerAddr,
 		tlsConfig:      tlsConfig,
@@ -90,6 +97,8 @@ func NewConnector(cfg *ConnectorConfig, logger *zap.Logger) *Connector {
 		stopCh:         make(chan struct{}),
 		dataFrameQueue: make(chan *protocol.Frame, workerCount*100),
 		workerCount:    workerCount,
+		recoverer:      recoverer,
+		panicMetrics:   panicMetrics,
 	}
 }
 
@@ -216,6 +225,7 @@ func (c *Connector) register() error {
 
 func (c *Connector) dataFrameWorker(workerID int) {
 	defer c.handlerWg.Done()
+	defer c.recoverer.Recover(fmt.Sprintf("dataFrameWorker-%d", workerID))
 
 	for {
 		select {
@@ -224,12 +234,20 @@ func (c *Connector) dataFrameWorker(workerID int) {
 				return
 			}
 
-			if err := c.frameHandler.HandleDataFrame(frame); err != nil {
-				c.logger.Error("Failed to handle data frame",
-					zap.Int("worker_id", workerID),
-					zap.Error(err))
-			}
-			frame.Release()
+			func() {
+				defer c.recoverer.RecoverWithCallback("handleDataFrame", func(p interface{}) {
+					if frame != nil {
+						frame.Release()
+					}
+				})
+
+				if err := c.frameHandler.HandleDataFrame(frame); err != nil {
+					c.logger.Error("Failed to handle data frame",
+						zap.Int("worker_id", workerID),
+						zap.Error(err))
+				}
+				frame.Release()
+			}()
 
 		case <-c.stopCh:
 			return
@@ -240,6 +258,7 @@ func (c *Connector) dataFrameWorker(workerID int) {
 // handleFrames handles incoming frames from server
 func (c *Connector) handleFrames() {
 	defer c.Close()
+	defer c.recoverer.Recover("handleFrames")
 
 	for {
 		select {

@@ -11,6 +11,7 @@ import (
 
 	"drip/internal/server/tunnel"
 	"drip/internal/shared/pool"
+	"drip/internal/shared/recovery"
 	"go.uber.org/zap"
 )
 
@@ -32,6 +33,8 @@ type Listener struct {
 	connections   map[string]*Connection
 	connMu        sync.RWMutex
 	workerPool    *pool.WorkerPool // Worker pool for connection handling
+	recoverer     *recovery.Recoverer
+	panicMetrics  *recovery.PanicMetrics
 }
 
 func NewListener(address string, tlsConfig *tls.Config, authToken string, manager *tunnel.Manager, logger *zap.Logger, portAlloc *PortAllocator, domain string, publicPort int, httpHandler http.Handler, responseChans HTTPResponseHandler) *Listener {
@@ -45,6 +48,9 @@ func NewListener(address string, tlsConfig *tls.Config, authToken string, manage
 		zap.Int("workers", workers),
 		zap.Int("queue_size", queueSize),
 	)
+
+	panicMetrics := recovery.NewPanicMetrics(logger, nil)
+	recoverer := recovery.NewRecoverer(logger, panicMetrics)
 
 	return &Listener{
 		address:       address,
@@ -60,6 +66,8 @@ func NewListener(address string, tlsConfig *tls.Config, authToken string, manage
 		stopCh:        make(chan struct{}),
 		connections:   make(map[string]*Connection),
 		workerPool:    workerPool,
+		recoverer:     recoverer,
+		panicMetrics:  panicMetrics,
 	}
 }
 
@@ -86,6 +94,7 @@ func (l *Listener) Start() error {
 // acceptLoop accepts incoming connections
 func (l *Listener) acceptLoop() {
 	defer l.wg.Done()
+	defer l.recoverer.Recover("acceptLoop")
 
 	for {
 		select {
@@ -114,12 +123,20 @@ func (l *Listener) acceptLoop() {
 		}
 
 		l.wg.Add(1)
-		submitted := l.workerPool.Submit(func() {
-			l.handleConnection(conn)
-		})
+		submitted := l.workerPool.Submit(l.recoverer.WrapGoroutine(
+			fmt.Sprintf("handleConnection-%s", conn.RemoteAddr().String()),
+			func() {
+				l.handleConnection(conn)
+			},
+		))
 
 		if !submitted {
-			go l.handleConnection(conn)
+			l.recoverer.SafeGo(
+				fmt.Sprintf("handleConnection-fallback-%s", conn.RemoteAddr().String()),
+				func() {
+					l.handleConnection(conn)
+				},
+			)
 		}
 	}
 }
@@ -128,6 +145,12 @@ func (l *Listener) acceptLoop() {
 func (l *Listener) handleConnection(netConn net.Conn) {
 	defer l.wg.Done()
 	defer netConn.Close()
+	defer l.recoverer.RecoverWithCallback("handleConnection", func(p interface{}) {
+		connID := netConn.RemoteAddr().String()
+		l.connMu.Lock()
+		delete(l.connections, connID)
+		l.connMu.Unlock()
+	})
 
 	tlsConn, ok := netConn.(*tls.Conn)
 	if !ok {
