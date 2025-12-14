@@ -2,6 +2,9 @@ package ui
 
 import (
 	"fmt"
+	"strings"
+
+	"github.com/charmbracelet/lipgloss"
 )
 
 // RenderConfigInit renders config initialization UI
@@ -100,18 +103,59 @@ func RenderConfigValidation(serverValid bool, serverMsg string, tokenSet bool, t
 }
 
 // RenderDaemonStarted renders daemon started message
-func RenderDaemonStarted(tunnelType string, port int, pid int, logPath string) string {
+func RenderDaemonStarted(tunnelType string, port int, pid int, logPath string, url string, forwardAddr string, serverAddr string) string {
+	if forwardAddr == "" {
+		forwardAddr = fmt.Sprintf("localhost:%d", port)
+	}
+
+	urlLine := Muted("(resolving...)")
+	if url != "" {
+		urlBadge := lipgloss.NewStyle().
+			Background(successColor).
+			Foreground(lipgloss.Color("#f8fafc")).
+			Bold(true).
+			Padding(0, 1).
+			Render(url)
+		urlLine = urlBadge
+	}
+
+	headline := successStyle.Render("✓ Tunnel Started in Background")
+
 	lines := []string{
 		KeyValue("Type", Highlight(tunnelType)),
 		KeyValue("Port", fmt.Sprintf("%d", port)),
 		KeyValue("PID", fmt.Sprintf("%d", pid)),
+		KeyValue("Forward", forwardAddr),
+	}
+	if serverAddr != "" {
+		lines = append(lines, KeyValue("Server", serverAddr))
+	}
+
+	lines = append(lines,
 		"",
 		Muted("Commands:"),
-		Cyan("  drip list") + Muted("           Check tunnel status"),
-		Cyan(fmt.Sprintf("  drip attach %s %d", tunnelType, port)) + Muted("  View logs"),
-		Cyan(fmt.Sprintf("  drip stop %s %d", tunnelType, port)) + Muted("    Stop tunnel"),
+		Cyan("  drip list")+Muted("           Check tunnel status"),
+		Cyan(fmt.Sprintf("  drip attach %s %d", tunnelType, port))+Muted("  View logs"),
+		Cyan(fmt.Sprintf("  drip stop %s %d", tunnelType, port))+Muted("    Stop tunnel"),
 		"",
-		Muted("Logs: ") + mutedStyle.Render(logPath),
+		Muted("Logs: ")+mutedStyle.Render(logPath),
+	)
+
+	contentWidth := 0
+	for _, line := range append([]string{headline}, lines...) {
+		if w := lipgloss.Width(line); w > contentWidth {
+			contentWidth = w
+		}
 	}
-	return SuccessBox("Tunnel Started in Background", lines...)
+	if w := lipgloss.Width(urlLine); w > contentWidth {
+		contentWidth = w
+	}
+
+	centeredURL := lipgloss.PlaceHorizontal(contentWidth, lipgloss.Center, urlLine)
+
+	contentLines := make([]string, 0, len(lines)+4)
+	contentLines = append(contentLines, headline, "", centeredURL, "")
+	contentLines = append(contentLines, lines...)
+
+	return successBoxStyle.Render(strings.Join(contentLines, "\n"))
 }
