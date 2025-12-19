@@ -78,7 +78,7 @@ func (c *PoolClient) handleHTTPStream(stream net.Conn) {
 	_ = stream.SetReadDeadline(time.Time{})
 
 	if httputil.IsWebSocketUpgrade(req) {
-		c.handleWebSocketUpgrade(cc, req)
+		c.handleWebSocketUpgrade(&bufferedConn{Conn: cc, reader: br}, req)
 		return
 	}
 
@@ -96,6 +96,7 @@ func (c *PoolClient) handleHTTPStream(stream net.Conn) {
 		httputil.WriteProxyError(cc, http.StatusBadGateway, "Bad Gateway")
 		return
 	}
+	outReq.ContentLength = req.ContentLength
 
 	origHost := req.Host
 	httputil.CopyHeaders(outReq.Header, req.Header)
@@ -153,11 +154,6 @@ func (c *PoolClient) handleHTTPStream(stream net.Conn) {
 }
 
 func (c *PoolClient) handleWebSocketUpgrade(cc net.Conn, req *http.Request) {
-	scheme := "ws"
-	if c.tunnelType == protocol.TunnelTypeHTTPS {
-		scheme = "wss"
-	}
-
 	targetAddr := net.JoinHostPort(c.localHost, fmt.Sprintf("%d", c.localPort))
 	localConn, err := net.DialTimeout("tcp", targetAddr, 10*time.Second)
 	if err != nil {
@@ -175,8 +171,11 @@ func (c *PoolClient) handleWebSocketUpgrade(cc net.Conn, req *http.Request) {
 		localConn = tlsConn
 	}
 
-	req.URL.Scheme = scheme
-	req.URL.Host = targetAddr
+	origHost := req.Host
+	req.Host = targetAddr
+	if origHost != "" {
+		req.Header.Set("X-Forwarded-Host", origHost)
+	}
 	if err := req.Write(localConn); err != nil {
 		httputil.WriteProxyError(cc, http.StatusBadGateway, "Failed to forward upgrade request")
 		return
@@ -194,15 +193,28 @@ func (c *PoolClient) handleWebSocketUpgrade(cc net.Conn, req *http.Request) {
 	}
 
 	if resp.StatusCode == http.StatusSwitchingProtocols {
+		localRW := net.Conn(localConn)
+		if localBr.Buffered() > 0 {
+			localRW = &bufferedConn{Conn: localConn, reader: localBr}
+		}
 		_ = netutil.PipeWithCallbacksAndBufferSize(
 			c.ctx,
 			cc,
-			localConn,
+			localRW,
 			pool.SizeLarge,
 			func(n int64) { c.stats.AddBytesIn(n) },
 			func(n int64) { c.stats.AddBytesOut(n) },
 		)
 	}
+}
+
+type bufferedConn struct {
+	net.Conn
+	reader *bufio.Reader
+}
+
+func (c *bufferedConn) Read(p []byte) (int, error) {
+	return c.reader.Read(p)
 }
 
 func newLocalHTTPClient(tunnelType protocol.TunnelType) *http.Client {

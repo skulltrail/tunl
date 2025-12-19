@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"io"
 	"net"
@@ -188,7 +189,7 @@ func (h *Handler) handleWebSocket(w http.ResponseWriter, r *http.Request, tconn 
 		return
 	}
 
-	clientConn, _, err := hj.Hijack()
+	clientConn, clientBuf, err := hj.Hijack()
 	if err != nil {
 		stream.Close()
 		tconn.DecActiveConnections()
@@ -208,7 +209,15 @@ func (h *Handler) handleWebSocket(w http.ResponseWriter, r *http.Request, tconn 
 		defer clientConn.Close()
 		defer tconn.DecActiveConnections()
 
-		_ = netutil.PipeWithCallbacks(r.Context(), stream, clientConn,
+		var clientRW io.ReadWriteCloser = clientConn
+		if clientBuf != nil && clientBuf.Reader.Buffered() > 0 {
+			clientRW = &bufferedReadWriteCloser{
+				Reader: clientBuf.Reader,
+				Conn:   clientConn,
+			}
+		}
+
+		_ = netutil.PipeWithCallbacks(context.Background(), stream, clientRW,
 			func(n int64) { tconn.AddBytesOut(n) },
 			func(n int64) { tconn.AddBytesIn(n) },
 		)
@@ -385,4 +394,13 @@ func (h *Handler) serveStats(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(data)))
 	w.Write(data)
+}
+
+type bufferedReadWriteCloser struct {
+	*bufio.Reader
+	net.Conn
+}
+
+func (b *bufferedReadWriteCloser) Read(p []byte) (int, error) {
+	return b.Reader.Read(p)
 }
