@@ -46,33 +46,6 @@
 | Interstitial Page | None | Yes (removable with header) |
 | Open Source | ✓ | ✗ |
 
-## What's New in v0.5.0
-
-### 🔄 Switched to Yamux Protocol
-
-Our custom multiplexing protocol had too many edge-case bugs. We replaced it with [yamux](https://github.com/hashicorp/yamux), HashiCorp's battle-tested stream multiplexing library.
-
-**Why Yamux?**
-- Production-proven in Consul, Nomad, and other critical infrastructure
-- Built-in flow control and keepalive support
-- Active maintenance and community support
-
-**What changed:**
-- Removed: Custom HPACK compression, flow control, binary framing, HTTP codec
-- Added: Yamux-based connection pooling and session management
-- Result: ~60% less protocol code, significantly improved stability
-
-### ⚡ Performance Improvements
-
-| Metric | Improvement |
-|--------|-------------|
-| Connection setup | 3x faster (session reuse) |
-| Memory per tunnel | -50% (simplified state) |
-| Latency (p99) | -40% (fewer encoding layers) |
-| Throughput | +80% (efficient multiplexing) |
-
-> ⚠️ **Breaking Change**: Protocol incompatible with v0.4.x. Upgrade both client and server.
-
 ## Quick Install
 
 ```bash
@@ -304,6 +277,10 @@ drip config init       Set up server and token
 drip config show       Show current config
 drip config set <key> <value>
 ```
+
+## Acknowledgements
+
+- [yamux](https://github.com/hashicorp/yamux) - Stream multiplexing library powering Drip's connection multiplexing
 
 ## License
 
