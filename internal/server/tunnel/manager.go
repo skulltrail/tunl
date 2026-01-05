@@ -233,6 +233,9 @@ func (m *Manager) RegisterWithIP(conn *websocket.Conn, customSubdomain string, r
 				m.tunnelsByIP[remoteIP]--
 				if m.tunnelsByIP[remoteIP] == 0 {
 					delete(m.tunnelsByIP, remoteIP)
+					metrics.TunnelsByIP.DeleteLabelValues(remoteIP)
+				} else {
+					metrics.TunnelsByIP.WithLabelValues(remoteIP).Set(float64(m.tunnelsByIP[remoteIP]))
 				}
 			}
 			m.ipMu.Unlock()
@@ -410,6 +413,9 @@ func (m *Manager) CleanupStale(timeout time.Duration) int {
 						m.tunnelsByIP[remoteIP]--
 						if m.tunnelsByIP[remoteIP] == 0 {
 							delete(m.tunnelsByIP, remoteIP)
+							metrics.TunnelsByIP.DeleteLabelValues(remoteIP)
+						} else {
+							metrics.TunnelsByIP.WithLabelValues(remoteIP).Set(float64(m.tunnelsByIP[remoteIP]))
 						}
 					}
 					m.ipMu.Unlock()
