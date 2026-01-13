@@ -190,6 +190,13 @@ func (c *Connection) Handle() error {
 		)
 	}
 
+	if req.ProxyAuth != nil && req.ProxyAuth.Enabled {
+		c.tunnelConn.SetProxyAuth(req.ProxyAuth)
+		c.logger.Info("Proxy authentication configured",
+			zap.String("subdomain", subdomain),
+		)
+	}
+
 	c.logger.Info("Tunnel registered",
 		zap.String("subdomain", subdomain),
 		zap.String("tunnel_type", string(req.TunnelType)),

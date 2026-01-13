@@ -13,7 +13,6 @@ import (
 	"go.uber.org/zap"
 )
 
-// Connection represents a tunnel connection from a client
 type Connection struct {
 	Subdomain  string
 	Conn       *websocket.Conn
@@ -22,19 +21,19 @@ type Connection struct {
 	LastActive time.Time
 	mu         sync.RWMutex
 	logger     *zap.Logger
-	closed     atomic.Bool // Use atomic for lock-free hot path checks
+	closed     atomic.Bool
 	tunnelType protocol.TunnelType
 	openStream func() (net.Conn, error)
-	remoteIP   string // Client IP for rate limiting tracking
+	remoteIP   string
 
 	bytesIn           atomic.Int64
 	bytesOut          atomic.Int64
 	activeConnections atomic.Int64
 
 	ipAccessChecker *netutil.IPAccessChecker
+	proxyAuth       *protocol.ProxyAuth
 }
 
-// NewConnection creates a new tunnel connection
 func NewConnection(subdomain string, conn *websocket.Conn, logger *zap.Logger) *Connection {
 	return &Connection{
 		Subdomain:  subdomain,
@@ -46,9 +45,7 @@ func NewConnection(subdomain string, conn *websocket.Conn, logger *zap.Logger) *
 	}
 }
 
-// Send sends data through the WebSocket connection
 func (c *Connection) Send(data []byte) error {
-	// Lock-free check using atomic - avoids RLock contention on hot path
 	if c.closed.Load() {
 		return ErrConnectionClosed
 	}
@@ -61,25 +58,21 @@ func (c *Connection) Send(data []byte) error {
 	}
 }
 
-// UpdateActivity updates the last activity timestamp
 func (c *Connection) UpdateActivity() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.LastActive = time.Now()
 }
 
-// IsAlive checks if the connection is still alive based on last activity
 func (c *Connection) IsAlive(timeout time.Duration) bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return time.Since(c.LastActive) < timeout
 }
 
-// Close closes the connection and all associated channels
 func (c *Connection) Close() {
-	// Use atomic swap to ensure only one goroutine closes
 	if c.closed.Swap(true) {
-		return // Already closed
+		return
 	}
 
 	c.mu.Lock()
@@ -89,46 +82,37 @@ func (c *Connection) Close() {
 	close(c.SendCh)
 
 	if c.Conn != nil {
-		// Send close message
 		c.Conn.WriteMessage(websocket.CloseMessage,
 			websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
 		c.Conn.Close()
 	}
 
-	c.logger.Info("Connection closed",
-		zap.String("subdomain", c.Subdomain),
-	)
+	c.logger.Info("Connection closed", zap.String("subdomain", c.Subdomain))
 }
 
-// IsClosed returns whether the connection is closed
 func (c *Connection) IsClosed() bool {
-	return c.closed.Load() // Lock-free check
+	return c.closed.Load()
 }
 
-// SetTunnelType sets the tunnel type.
 func (c *Connection) SetTunnelType(tType protocol.TunnelType) {
 	c.mu.Lock()
 	c.tunnelType = tType
 	c.mu.Unlock()
 }
 
-// GetTunnelType returns the tunnel type.
 func (c *Connection) GetTunnelType() protocol.TunnelType {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.tunnelType
 }
 
-// SetOpenStream registers a stream opener for this tunnel.
 func (c *Connection) SetOpenStream(open func() (net.Conn, error)) {
 	c.mu.Lock()
 	c.openStream = open
 	c.mu.Unlock()
 }
 
-// OpenStream opens a new mux stream to the tunnel client.
 func (c *Connection) OpenStream() (net.Conn, error) {
-	// Lock-free closed check
 	if c.closed.Load() {
 		return nil, ErrConnectionClosed
 	}
@@ -161,13 +145,8 @@ func (c *Connection) AddBytesOut(n int64) {
 	metrics.TunnelBytesSent.WithLabelValues(c.Subdomain, c.Subdomain, c.GetTunnelType().String()).Add(float64(n))
 }
 
-func (c *Connection) GetBytesIn() int64 {
-	return c.bytesIn.Load()
-}
-
-func (c *Connection) GetBytesOut() int64 {
-	return c.bytesOut.Load()
-}
+func (c *Connection) GetBytesIn() int64  { return c.bytesIn.Load() }
+func (c *Connection) GetBytesOut() int64 { return c.bytesOut.Load() }
 
 func (c *Connection) IncActiveConnections() {
 	c.activeConnections.Add(1)
@@ -181,37 +160,60 @@ func (c *Connection) DecActiveConnections() {
 	metrics.TunnelActiveConnections.WithLabelValues(c.Subdomain, c.Subdomain, c.GetTunnelType().String()).Dec()
 }
 
-func (c *Connection) GetActiveConnections() int64 {
-	return c.activeConnections.Load()
-}
+func (c *Connection) GetActiveConnections() int64 { return c.activeConnections.Load() }
 
-// SetIPAccessControl sets the IP access control rules for this tunnel.
 func (c *Connection) SetIPAccessControl(allowCIDRs, denyIPs []string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.ipAccessChecker = netutil.NewIPAccessChecker(allowCIDRs, denyIPs)
 }
 
-// IsIPAllowed checks if the given IP address is allowed to access this tunnel.
 func (c *Connection) IsIPAllowed(ip string) bool {
 	c.mu.RLock()
 	checker := c.ipAccessChecker
 	c.mu.RUnlock()
 
 	if checker == nil {
-		return true // No access control configured
+		return true
 	}
 	return checker.IsAllowed(ip)
 }
 
-// HasIPAccessControl returns true if IP access control is configured.
 func (c *Connection) HasIPAccessControl() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.ipAccessChecker != nil && c.ipAccessChecker.HasRules()
 }
 
-// StartWritePump starts the write pump for sending messages
+func (c *Connection) SetProxyAuth(auth *protocol.ProxyAuth) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.proxyAuth = auth
+}
+
+func (c *Connection) GetProxyAuth() *protocol.ProxyAuth {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.proxyAuth
+}
+
+func (c *Connection) HasProxyAuth() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.proxyAuth != nil && c.proxyAuth.Enabled
+}
+
+func (c *Connection) ValidateProxyAuth(password string) bool {
+	c.mu.RLock()
+	auth := c.proxyAuth
+	c.mu.RUnlock()
+
+	if auth == nil || !auth.Enabled {
+		return true
+	}
+	return auth.Password == password
+}
+
 func (c *Connection) StartWritePump() {
 	if c.Conn == nil {
 		go func() {
@@ -241,15 +243,11 @@ func (c *Connection) StartWritePump() {
 
 			c.Conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 			if err := c.Conn.WriteMessage(websocket.TextMessage, message); err != nil {
-				c.logger.Error("Write error",
-					zap.String("subdomain", c.Subdomain),
-					zap.Error(err),
-				)
+				c.logger.Error("Write error", zap.String("subdomain", c.Subdomain), zap.Error(err))
 				return
 			}
 
 		case <-ticker.C:
-			// Send ping to keep connection alive
 			c.Conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 			if err := c.Conn.WriteMessage(websocket.PingMessage, nil); err != nil {
 				return

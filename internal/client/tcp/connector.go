@@ -27,6 +27,9 @@ type ConnectorConfig struct {
 
 	AllowIPs []string
 	DenyIPs  []string
+
+	// Proxy authentication
+	AuthPass string
 }
 
 type TunnelClient interface {

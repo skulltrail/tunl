@@ -66,6 +66,8 @@ type PoolClient struct {
 
 	allowIPs []string
 	denyIPs  []string
+
+	authPass string
 }
 
 // NewPoolClient creates a new pool client.
@@ -131,6 +133,7 @@ func NewPoolClient(cfg *ConnectorConfig, logger *zap.Logger) *PoolClient {
 		logger:          logger,
 		allowIPs:        cfg.AllowIPs,
 		denyIPs:         cfg.DenyIPs,
+		authPass:        cfg.AuthPass,
 	}
 
 	if tunnelType == protocol.TunnelTypeHTTP || tunnelType == protocol.TunnelTypeHTTPS {
@@ -165,6 +168,13 @@ func (c *PoolClient) Connect() error {
 		req.IPAccess = &protocol.IPAccessControl{
 			AllowIPs: c.allowIPs,
 			DenyIPs:  c.denyIPs,
+		}
+	}
+
+	if c.authPass != "" {
+		req.ProxyAuth = &protocol.ProxyAuth{
+			Enabled:  true,
+			Password: c.authPass,
 		}
 	}
 
