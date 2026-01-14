@@ -197,6 +197,14 @@ func (l *Listener) handleConnection(netConn net.Conn) {
 		l.connMu.Unlock()
 	})
 
+	// Check if TCP transport is allowed
+	if !l.IsTransportAllowed("tcp") {
+		l.logger.Warn("TCP transport not allowed, rejecting connection",
+			zap.String("remote_addr", netConn.RemoteAddr().String()),
+		)
+		return
+	}
+
 	tlsConn, ok := netConn.(*tls.Conn)
 	if !ok {
 		l.logger.Error("Connection is not TLS")
