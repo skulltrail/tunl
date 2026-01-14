@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"strconv"
+	"strings"
 
 	"drip/internal/client/tcp"
 	"drip/internal/shared/protocol"
@@ -18,6 +19,7 @@ var (
 	allowIPs     []string
 	denyIPs      []string
 	authPass     string
+	transport    string
 )
 
 var httpCmd = &cobra.Command{
@@ -32,12 +34,16 @@ Example:
   drip http 3000 --allow-ip 10.0.0.1        Allow single IP
   drip http 3000 --deny-ip 1.2.3.4          Block specific IP
   drip http 3000 --auth secret              Enable proxy authentication with password
+  drip http 3000 --transport wss            Use WebSocket over TLS (CDN-friendly)
 
 Configuration:
   First time: Run 'drip config init' to save server and token
   Subsequent: Just run 'drip http <port>'
 
-Note: Uses TCP over TLS 1.3 for secure communication`,
+Transport options:
+  auto  - Automatically select based on server address (default)
+  tcp   - Direct TLS 1.3 connection
+  wss   - WebSocket over TLS (works through CDN like Cloudflare)`,
 	Args: cobra.ExactArgs(1),
 	RunE: runHTTP,
 }
@@ -49,6 +55,7 @@ func init() {
 	httpCmd.Flags().StringSliceVar(&allowIPs, "allow-ip", nil, "Allow only these IPs or CIDR ranges (e.g., 192.168.1.1,10.0.0.0/8)")
 	httpCmd.Flags().StringSliceVar(&denyIPs, "deny-ip", nil, "Deny these IPs or CIDR ranges (e.g., 1.2.3.4,192.168.1.0/24)")
 	httpCmd.Flags().StringVar(&authPass, "auth", "", "Password for proxy authentication")
+	httpCmd.Flags().StringVar(&transport, "transport", "auto", "Transport protocol: auto, tcp, wss (WebSocket over TLS)")
 	httpCmd.Flags().BoolVar(&daemonMarker, "daemon-child", false, "Internal flag for daemon child process")
 	httpCmd.Flags().MarkHidden("daemon-child")
 	rootCmd.AddCommand(httpCmd)
@@ -80,6 +87,7 @@ func runHTTP(_ *cobra.Command, args []string) error {
 		AllowIPs:   allowIPs,
 		DenyIPs:    denyIPs,
 		AuthPass:   authPass,
+		Transport:  parseTransport(transport),
 	}
 
 	var daemon *DaemonInfo
@@ -88,4 +96,16 @@ func runHTTP(_ *cobra.Command, args []string) error {
 	}
 
 	return runTunnelWithUI(connConfig, daemon)
+}
+
+// parseTransport converts a string to TransportType
+func parseTransport(s string) tcp.TransportType {
+	switch strings.ToLower(s) {
+	case "wss":
+		return tcp.TransportWebSocket
+	case "tcp", "tls":
+		return tcp.TransportTCP
+	default:
+		return tcp.TransportAuto
+	}
 }

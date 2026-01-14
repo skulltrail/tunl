@@ -200,6 +200,7 @@ sudo journalctl -u drip-server -f
 - 可以转发到 localhost 或任何局域网地址
 - 自定义子域名或自动生成
 - 守护模式保持隧道持久运行
+- 多种传输协议（TCP、WebSocket）
 
 **性能**
 - 二进制协议 + msgpack 编码
@@ -264,6 +265,18 @@ drip http 3000 --deny-ip 1.2.3.4,5.6.7.8
 drip tcp 5432 --allow-ip 192.168.1.0/24 --deny-ip 192.168.1.100
 ```
 
+**传输协议**
+```bash
+# 根据服务器自动选择传输协议（默认）
+drip http 3000 --transport auto
+
+# 使用直接 TLS 1.3 连接
+drip http 3000 --transport tcp
+
+# 使用 WebSocket over TLS（CDN 友好，可穿透 Cloudflare）
+drip http 3000 --transport wss
+```
+
 ## 命令参考
 
 ```bash
@@ -276,6 +289,7 @@ drip http <端口> [参数]
   -t, --token        认证 token
   --allow-ip         只允许这些 IP 或 CIDR 访问
   --deny-ip          拒绝这些 IP 或 CIDR 访问
+  --transport        传输协议：auto, tcp, wss（默认：auto）
 
 # HTTPS 隧道（参数同 http）
 drip https <端口> [参数]

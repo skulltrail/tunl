@@ -10,6 +10,18 @@ import (
 	"go.uber.org/zap"
 )
 
+// TransportType defines the transport protocol for tunnel connections
+type TransportType string
+
+const (
+	// TransportAuto automatically selects transport based on server address
+	TransportAuto TransportType = "auto"
+	// TransportTCP uses direct TLS 1.3 connection
+	TransportTCP TransportType = "tcp"
+	// TransportWebSocket uses WebSocket over TLS (CDN-friendly)
+	TransportWebSocket TransportType = "wss"
+)
+
 type LatencyCallback func(latency time.Duration)
 
 type ConnectorConfig struct {
@@ -30,6 +42,9 @@ type ConnectorConfig struct {
 
 	// Proxy authentication
 	AuthPass string
+
+	// Transport protocol selection
+	Transport TransportType
 }
 
 type TunnelClient interface {

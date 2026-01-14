@@ -23,6 +23,7 @@ Example:
   drip tcp 5432 --allow-ip 192.168.0.0/16  Only allow IPs from 192.168.x.x
   drip tcp 22 --allow-ip 10.0.0.1          Allow single IP
   drip tcp 22 --deny-ip 1.2.3.4            Block specific IP
+  drip tcp 22 --transport wss              Use WebSocket over TLS (CDN-friendly)
 
 Supported Services:
   - Databases: PostgreSQL (5432), MySQL (3306), Redis (6379), MongoDB (27017)
@@ -33,7 +34,13 @@ Configuration:
   First time: Run 'drip config init' to save server and token
   Subsequent: Just run 'drip tcp <port>'
 
-Note: Uses TCP over TLS 1.3 for secure communication`,
+Transport options:
+  auto  - Automatically select based on server address (default)
+  tcp   - Direct TLS 1.3 connection
+  wss   - WebSocket over TLS (works through CDN like Cloudflare)
+
+Note: TCP tunnels require dynamic port allocation on the server.
+      When using CDN (--transport wss), the server must still expose the allocated port directly.`,
 	Args: cobra.ExactArgs(1),
 	RunE: runTCP,
 }
@@ -44,6 +51,7 @@ func init() {
 	tcpCmd.Flags().StringVarP(&localAddress, "address", "a", "127.0.0.1", "Local address to forward to (default: 127.0.0.1)")
 	tcpCmd.Flags().StringSliceVar(&allowIPs, "allow-ip", nil, "Allow only these IPs or CIDR ranges (e.g., 192.168.1.1,10.0.0.0/8)")
 	tcpCmd.Flags().StringSliceVar(&denyIPs, "deny-ip", nil, "Deny these IPs or CIDR ranges (e.g., 1.2.3.4,192.168.1.0/24)")
+	tcpCmd.Flags().StringVar(&transport, "transport", "auto", "Transport protocol: auto, tcp, wss (WebSocket over TLS)")
 	tcpCmd.Flags().BoolVar(&daemonMarker, "daemon-child", false, "Internal flag for daemon child process")
 	tcpCmd.Flags().MarkHidden("daemon-child")
 	rootCmd.AddCommand(tcpCmd)
@@ -74,6 +82,7 @@ func runTCP(_ *cobra.Command, args []string) error {
 		Insecure:   insecure,
 		AllowIPs:   allowIPs,
 		DenyIPs:    denyIPs,
+		Transport:  parseTransport(transport),
 	}
 
 	var daemon *DaemonInfo

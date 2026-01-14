@@ -200,6 +200,7 @@ sudo journalctl -u drip-server -f
 - Forward to localhost or any LAN address
 - Custom subdomains or auto-generated
 - Daemon mode for persistent tunnels
+- Multiple transport protocols (TCP, WebSocket)
 
 **Performance**
 - Binary protocol with msgpack encoding
@@ -264,6 +265,18 @@ drip http 3000 --deny-ip 1.2.3.4,5.6.7.8
 drip tcp 5432 --allow-ip 192.168.1.0/24 --deny-ip 192.168.1.100
 ```
 
+**Transport Protocols**
+```bash
+# Auto-select transport based on server (default)
+drip http 3000 --transport auto
+
+# Use direct TLS 1.3 connection
+drip http 3000 --transport tcp
+
+# Use WebSocket over TLS (CDN-friendly, works through Cloudflare)
+drip http 3000 --transport wss
+```
+
 ## Command Reference
 
 ```bash
@@ -276,6 +289,7 @@ drip http <port> [flags]
   -t, --token        Auth token
   --allow-ip         Allow only these IPs or CIDR ranges
   --deny-ip          Deny these IPs or CIDR ranges
+  --transport        Transport protocol: auto, tcp, wss (default: auto)
 
 # HTTPS tunnel (same flags as http)
 drip https <port> [flags]
