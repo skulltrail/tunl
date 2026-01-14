@@ -22,12 +22,16 @@ Example:
   drip https 443 --allow-ip 10.0.0.1        Allow single IP
   drip https 443 --deny-ip 1.2.3.4          Block specific IP
   drip https 443 --auth secret              Enable proxy authentication with password
+  drip https 443 --transport wss            Use WebSocket over TLS (CDN-friendly)
 
 Configuration:
   First time: Run 'drip config init' to save server and token
   Subsequent: Just run 'drip https <port>'
 
-Note: Uses TCP over TLS 1.3 for secure communication`,
+Transport options:
+  auto  - Automatically select based on server address (default)
+  tcp   - Direct TLS 1.3 connection
+  wss   - WebSocket over TLS (works through CDN like Cloudflare)`,
 	Args: cobra.ExactArgs(1),
 	RunE: runHTTPS,
 }
@@ -39,6 +43,7 @@ func init() {
 	httpsCmd.Flags().StringSliceVar(&allowIPs, "allow-ip", nil, "Allow only these IPs or CIDR ranges (e.g., 192.168.1.1,10.0.0.0/8)")
 	httpsCmd.Flags().StringSliceVar(&denyIPs, "deny-ip", nil, "Deny these IPs or CIDR ranges (e.g., 1.2.3.4,192.168.1.0/24)")
 	httpsCmd.Flags().StringVar(&authPass, "auth", "", "Password for proxy authentication")
+	httpsCmd.Flags().StringVar(&transport, "transport", "auto", "Transport protocol: auto, tcp, wss (WebSocket over TLS)")
 	httpsCmd.Flags().BoolVar(&daemonMarker, "daemon-child", false, "Internal flag for daemon child process")
 	httpsCmd.Flags().MarkHidden("daemon-child")
 	rootCmd.AddCommand(httpsCmd)
@@ -70,6 +75,7 @@ func runHTTPS(_ *cobra.Command, args []string) error {
 		AllowIPs:   allowIPs,
 		DenyIPs:    denyIPs,
 		AuthPass:   authPass,
+		Transport:  parseTransport(transport),
 	}
 
 	var daemon *DaemonInfo

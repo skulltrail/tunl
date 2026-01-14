@@ -9,26 +9,31 @@ import (
 
 // ServerConfig holds the server configuration
 type ServerConfig struct {
-	// Server settings
-	Port       int
-	PublicPort int // Port to display in URLs (for reverse proxy scenarios)
-	Domain     string
+	Port         int
+	PublicPort   int    // Port to display in URLs (for reverse proxy scenarios)
+	Domain       string // Domain for client connections (e.g., connect.example.com)
+	TunnelDomain string // Domain for tunnel URLs (e.g., example.com for *.example.com)
 
 	// TCP tunnel dynamic port allocation
 	TCPPortMin int
 	TCPPortMax int
 
-	// TLS/SSL settings
+	// TLS settings
 	TLSEnabled  bool
 	TLSCertFile string
 	TLSKeyFile  string
-	AutoTLS     bool // Automatic Let's Encrypt
 
 	// Security
 	AuthToken string
 
 	// Logging
 	Debug bool
+
+	// Allowed transports: "tcp", "wss", or "tcp,wss" (default: "tcp,wss")
+	AllowedTransports []string
+
+	// Allowed tunnel types: "http", "https", "tcp" (default: all)
+	AllowedTunnelTypes []string
 }
 
 // Validate checks if the server configuration is valid
@@ -49,6 +54,11 @@ func (c *ServerConfig) Validate() error {
 	}
 	if strings.Contains(c.Domain, ":") {
 		return fmt.Errorf("domain should not contain port, got: %s", c.Domain)
+	}
+
+	// Validate tunnel domain if set
+	if c.TunnelDomain != "" && strings.Contains(c.TunnelDomain, ":") {
+		return fmt.Errorf("tunnel domain should not contain port, got: %s", c.TunnelDomain)
 	}
 
 	// Validate TCP port range
@@ -118,10 +128,10 @@ func (c *ServerConfig) LoadTLSConfig() (*tls.Config, error) {
 func GetClientTLSConfig(serverName string) *tls.Config {
 	return &tls.Config{
 		ServerName:               serverName,
-		MinVersion:               tls.VersionTLS13, // Only TLS 1.3
-		MaxVersion:               tls.VersionTLS13, // Only TLS 1.3
-		ClientSessionCache:       tls.NewLRUClientSessionCache(0), // Enable session resumption (0 = default size)
-		PreferServerCipherSuites: true,                            // Prefer server cipher suites (ignored in TLS 1.3 but set for consistency)
+		MinVersion:               tls.VersionTLS13,
+		MaxVersion:               tls.VersionTLS13,
+		ClientSessionCache:       tls.NewLRUClientSessionCache(0),
+		PreferServerCipherSuites: true,
 		CipherSuites: []uint16{
 			tls.TLS_AES_128_GCM_SHA256,
 			tls.TLS_AES_256_GCM_SHA384,
@@ -135,33 +145,14 @@ func GetClientTLSConfig(serverName string) *tls.Config {
 func GetClientTLSConfigInsecure() *tls.Config {
 	return &tls.Config{
 		InsecureSkipVerify:       true,
-		MinVersion:               tls.VersionTLS13, // Only TLS 1.3
-		MaxVersion:               tls.VersionTLS13, // Only TLS 1.3
-		ClientSessionCache:       tls.NewLRUClientSessionCache(0), // Enable session resumption (0 = default size)
-		PreferServerCipherSuites: true,                            // Prefer server cipher suites (ignored in TLS 1.3 but set for consistency)
+		MinVersion:               tls.VersionTLS13,
+		MaxVersion:               tls.VersionTLS13,
+		ClientSessionCache:       tls.NewLRUClientSessionCache(0),
+		PreferServerCipherSuites: true,
 		CipherSuites: []uint16{
 			tls.TLS_AES_128_GCM_SHA256,
 			tls.TLS_AES_256_GCM_SHA384,
 			tls.TLS_CHACHA20_POLY1305_SHA256,
 		},
 	}
-}
-
-// GetServerURL returns the server URL based on configuration
-func (c *ServerConfig) GetServerURL() string {
-	protocol := "http"
-	if c.TLSEnabled {
-		protocol = "https"
-	}
-
-	if c.Port == 80 || (c.TLSEnabled && c.Port == 443) {
-		return fmt.Sprintf("%s://%s", protocol, c.Domain)
-	}
-
-	return fmt.Sprintf("%s://%s:%d", protocol, c.Domain, c.Port)
-}
-
-// GetTCPAddress returns the TCP address for tunnel connections
-func (c *ServerConfig) GetTCPAddress() string {
-	return fmt.Sprintf("%s:%d", c.Domain, c.Port)
 }

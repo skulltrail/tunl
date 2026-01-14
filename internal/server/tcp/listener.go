@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"drip/internal/server/metrics"
+	"drip/internal/server/proxy"
 	"drip/internal/server/tunnel"
 	"drip/internal/shared/pool"
 	"drip/internal/shared/recovery"
@@ -27,6 +28,7 @@ type Listener struct {
 	portAlloc    *PortAllocator
 	logger       *zap.Logger
 	domain       string
+	tunnelDomain string
 	publicPort   int
 	httpHandler  http.Handler
 	listener     net.Listener
@@ -40,9 +42,13 @@ type Listener struct {
 	groupManager *ConnectionGroupManager
 	httpServer   *http.Server
 	httpListener *connQueueListener
+
+	// Server capabilities
+	allowedTransports  []string
+	allowedTunnelTypes []string
 }
 
-func NewListener(address string, tlsConfig *tls.Config, authToken string, manager *tunnel.Manager, logger *zap.Logger, portAlloc *PortAllocator, domain string, publicPort int, httpHandler http.Handler) *Listener {
+func NewListener(address string, tlsConfig *tls.Config, authToken string, manager *tunnel.Manager, logger *zap.Logger, portAlloc *PortAllocator, domain string, tunnelDomain string, publicPort int, httpHandler http.Handler) *Listener {
 	numCPU := pool.NumCPU()
 	workers := numCPU * 5
 	queueSize := workers * 20
@@ -60,7 +66,7 @@ func NewListener(address string, tlsConfig *tls.Config, authToken string, manage
 	// Initialize worker pool metrics
 	metrics.WorkerPoolSize.Set(float64(workers))
 
-	return &Listener{
+	l := &Listener{
 		address:      address,
 		tlsConfig:    tlsConfig,
 		authToken:    authToken,
@@ -68,6 +74,7 @@ func NewListener(address string, tlsConfig *tls.Config, authToken string, manage
 		portAlloc:    portAlloc,
 		logger:       logger,
 		domain:       domain,
+		tunnelDomain: tunnelDomain,
 		publicPort:   publicPort,
 		httpHandler:  httpHandler,
 		stopCh:       make(chan struct{}),
@@ -77,6 +84,14 @@ func NewListener(address string, tlsConfig *tls.Config, authToken string, manage
 		panicMetrics: panicMetrics,
 		groupManager: NewConnectionGroupManager(logger),
 	}
+
+	// Set up WebSocket connection handler if httpHandler supports it
+	if h, ok := httpHandler.(*proxy.Handler); ok {
+		h.SetWSConnectionHandler(l)
+		h.SetPublicPort(publicPort)
+	}
+
+	return l
 }
 
 func (l *Listener) Start() error {
@@ -234,7 +249,8 @@ func (l *Listener) handleConnection(netConn net.Conn) {
 		return
 	}
 
-	conn := NewConnection(netConn, l.authToken, l.manager, l.logger, l.portAlloc, l.domain, l.publicPort, l.httpHandler, l.groupManager, l.httpListener)
+	conn := NewConnection(netConn, l.authToken, l.manager, l.logger, l.portAlloc, l.domain, l.tunnelDomain, l.publicPort, l.httpHandler, l.groupManager, l.httpListener)
+	conn.SetAllowedTunnelTypes(l.allowedTunnelTypes)
 
 	connID := netConn.RemoteAddr().String()
 	l.connMu.Lock()
@@ -333,4 +349,93 @@ func (l *Listener) GetActiveConnections() int {
 	l.connMu.RLock()
 	defer l.connMu.RUnlock()
 	return len(l.connections)
+}
+
+// HandleWSConnection implements proxy.WSConnectionHandler for WebSocket tunnel connections
+func (l *Listener) HandleWSConnection(conn net.Conn, remoteAddr string) {
+	l.wg.Add(1)
+	defer l.wg.Done()
+
+	connID := remoteAddr
+	if connID == "" {
+		connID = conn.RemoteAddr().String()
+	}
+
+	l.logger.Info("Handling WebSocket tunnel connection",
+		zap.String("remote_addr", connID),
+	)
+
+	// Create connection handler (no TLS verification needed - already done by HTTP server)
+	tcpConn := NewConnection(conn, l.authToken, l.manager, l.logger, l.portAlloc, l.domain, l.tunnelDomain, l.publicPort, l.httpHandler, l.groupManager, l.httpListener)
+	tcpConn.SetAllowedTunnelTypes(l.allowedTunnelTypes)
+
+	l.connMu.Lock()
+	l.connections[connID] = tcpConn
+	l.connMu.Unlock()
+
+	metrics.TotalConnections.Inc()
+	metrics.ActiveConnections.Inc()
+
+	defer func() {
+		l.connMu.Lock()
+		delete(l.connections, connID)
+		l.connMu.Unlock()
+
+		metrics.ActiveConnections.Dec()
+
+		if !tcpConn.IsHandedOff() {
+			conn.Close()
+		}
+	}()
+
+	if err := tcpConn.Handle(); err != nil {
+		errStr := err.Error()
+
+		if strings.Contains(errStr, "EOF") ||
+			strings.Contains(errStr, "connection reset by peer") ||
+			strings.Contains(errStr, "broken pipe") ||
+			strings.Contains(errStr, "connection refused") ||
+			strings.Contains(errStr, "websocket: close") {
+			return
+		}
+
+		if strings.Contains(errStr, "payload too large") ||
+			strings.Contains(errStr, "failed to read registration frame") ||
+			strings.Contains(errStr, "expected register frame") ||
+			strings.Contains(errStr, "failed to parse registration request") ||
+			strings.Contains(errStr, "tunnel type not allowed") {
+			l.logger.Warn("WebSocket tunnel protocol validation failed",
+				zap.String("remote_addr", connID),
+				zap.Error(err),
+			)
+		} else {
+			l.logger.Error("WebSocket tunnel connection handling failed",
+				zap.String("remote_addr", connID),
+				zap.Error(err),
+			)
+		}
+	}
+}
+
+// SetAllowedTransports sets the allowed transport protocols
+func (l *Listener) SetAllowedTransports(transports []string) {
+	l.allowedTransports = transports
+}
+
+// SetAllowedTunnelTypes sets the allowed tunnel types
+func (l *Listener) SetAllowedTunnelTypes(types []string) {
+	l.allowedTunnelTypes = types
+}
+
+// IsTransportAllowed checks if a transport is allowed
+func (l *Listener) IsTransportAllowed(transport string) bool {
+	if len(l.allowedTransports) == 0 {
+		return true
+	}
+	for _, t := range l.allowedTransports {
+		if strings.EqualFold(t, transport) {
+			return true
+		}
+	}
+	return false
 }

@@ -39,6 +39,7 @@ type Connection struct {
 	subdomain     string
 	port          int
 	domain        string
+	tunnelDomain  string
 	publicPort    int
 	portAlloc     *PortAllocator
 	tunnelConn    *tunnel.Connection
@@ -57,10 +58,13 @@ type Connection struct {
 	groupManager  *ConnectionGroupManager
 	httpListener  *connQueueListener
 	handedOff     bool
+
+	// Server capabilities
+	allowedTunnelTypes []string
 }
 
 // NewConnection creates a new connection handler
-func NewConnection(conn net.Conn, authToken string, manager *tunnel.Manager, logger *zap.Logger, portAlloc *PortAllocator, domain string, publicPort int, httpHandler http.Handler, groupManager *ConnectionGroupManager, httpListener *connQueueListener) *Connection {
+func NewConnection(conn net.Conn, authToken string, manager *tunnel.Manager, logger *zap.Logger, portAlloc *PortAllocator, domain string, tunnelDomain string, publicPort int, httpHandler http.Handler, groupManager *ConnectionGroupManager, httpListener *connQueueListener) *Connection {
 	ctx, cancel := context.WithCancel(context.Background())
 	c := &Connection{
 		conn:          conn,
@@ -69,6 +73,7 @@ func NewConnection(conn net.Conn, authToken string, manager *tunnel.Manager, log
 		logger:        logger,
 		portAlloc:     portAlloc,
 		domain:        domain,
+		tunnelDomain:  tunnelDomain,
 		publicPort:    publicPort,
 		httpHandler:   httpHandler,
 		stopCh:        make(chan struct{}),
@@ -129,6 +134,12 @@ func (c *Connection) Handle() error {
 	}
 
 	c.tunnelType = req.TunnelType
+
+	// Check if tunnel type is allowed
+	if !c.isTunnelTypeAllowed(string(req.TunnelType)) {
+		c.sendError("tunnel_type_not_allowed", fmt.Sprintf("Tunnel type '%s' is not allowed on this server", req.TunnelType))
+		return fmt.Errorf("tunnel type not allowed: %s", req.TunnelType)
+	}
 
 	if c.authToken != "" && req.Token != c.authToken {
 		c.sendError("authentication_failed", "Invalid authentication token")
@@ -207,12 +218,12 @@ func (c *Connection) Handle() error {
 	var tunnelURL string
 	if req.TunnelType == protocol.TunnelTypeHTTP || req.TunnelType == protocol.TunnelTypeHTTPS {
 		if c.publicPort == 443 {
-			tunnelURL = fmt.Sprintf("https://%s.%s", subdomain, c.domain)
+			tunnelURL = fmt.Sprintf("https://%s.%s", subdomain, c.tunnelDomain)
 		} else {
-			tunnelURL = fmt.Sprintf("https://%s.%s:%d", subdomain, c.domain, c.publicPort)
+			tunnelURL = fmt.Sprintf("https://%s.%s:%d", subdomain, c.tunnelDomain, c.publicPort)
 		}
 	} else {
-		tunnelURL = fmt.Sprintf("tcp://%s:%d", c.domain, c.port)
+		tunnelURL = fmt.Sprintf("tcp://%s:%d", c.tunnelDomain, c.port)
 	}
 
 	var tunnelID string
@@ -749,4 +760,22 @@ func (c *Connection) sendDataConnectError(code, message string) {
 	}
 	frame := protocol.NewFrame(protocol.FrameTypeDataConnectAck, respData)
 	_ = protocol.WriteFrame(c.conn, frame)
+}
+
+// SetAllowedTunnelTypes sets the allowed tunnel types for this connection
+func (c *Connection) SetAllowedTunnelTypes(types []string) {
+	c.allowedTunnelTypes = types
+}
+
+// isTunnelTypeAllowed checks if a tunnel type is allowed
+func (c *Connection) isTunnelTypeAllowed(tunnelType string) bool {
+	if len(c.allowedTunnelTypes) == 0 {
+		return true // Allow all by default
+	}
+	for _, t := range c.allowedTunnelTypes {
+		if strings.EqualFold(t, tunnelType) {
+			return true
+		}
+	}
+	return false
 }

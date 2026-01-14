@@ -41,8 +41,13 @@ func runTunnelWithUI(connConfig *tcp.ConnectorConfig, daemonInfo *DaemonInfo) er
 		fmt.Println(ui.RenderConnecting(connConfig.ServerAddr, reconnectAttempts, maxReconnectAttempts))
 
 		if err := connector.Connect(); err != nil {
+			if isConfigurationError(err) {
+				fmt.Println(ui.Warning(fmt.Sprintf("Configuration error: %v", err)))
+				os.Exit(1)
+			}
 			if isNonRetryableError(err) {
-				return fmt.Errorf("failed to connect: %w", err)
+				fmt.Println(ui.RenderConnectionFailed(err))
+				os.Exit(1)
 			}
 
 			reconnectAttempts++
@@ -227,4 +232,11 @@ func isNonRetryableError(err error) bool {
 		strings.Contains(errStr, "invalid subdomain") ||
 		strings.Contains(errStr, "authentication") ||
 		strings.Contains(errStr, "Invalid authentication token")
+}
+
+// isConfigurationError returns true for errors caused by user configuration
+// that won't be fixed by retrying (e.g., wrong transport type)
+func isConfigurationError(err error) bool {
+	errStr := err.Error()
+	return strings.Contains(errStr, "server only supports")
 }
