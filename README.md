@@ -57,12 +57,12 @@ drip http 3000 -n myapp
 
 ## Documentation
 
-For complete documentation, visit **[Docs](https://driptunnel.app/en/docs)**
+For complete documentation, visit **[Docs](https://driptunnel.app/docs)**
 
-- [Installation Guide](https://driptunnel.app/en/docs/installation)
-- [Client Usage](https://driptunnel.app/en/docs/client)
-- [Server Deployment](https://driptunnel.app/en/docs/server)
-- [Configuration Reference](https://driptunnel.app/en/docs/configuration)
+- [Installation Guide](https://driptunnel.app/docs/installation)
+- [Client Usage](https://driptunnel.app/docs/client)
+- [Server Deployment](https://driptunnel.app/docs/server)
+- [Configuration Reference](https://driptunnel.app/docs/configuration)
 
 ## License
 
